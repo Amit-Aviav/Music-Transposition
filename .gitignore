@@ -1,0 +1,24 @@
+# קבצים ותיקיות של סביבות עבודה
+.venv/
+env/
+venv/
+ENV/
+
+# קבצים רגישים
+.env
+
+# קבצים שנוצרים על ידי פייתון
+__pycache__/
+*.py[cod]
+*$py.class
+
+# קבצי לוגים
+*.log
+
+# קבצים של IDEs (כמו PyCharm / VS Code)
+.idea/
+.vscode/
+
+# קבצים של מערכות הפעלה
+.DS_Store
+Thumbs.db
