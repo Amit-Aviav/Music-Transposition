@@ -13,15 +13,93 @@ from fastapi import Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-load_dotenv()  # You'll need to create a .env file with your OpenAI API key
+load_dotenv()
+
+# Setup OpenAI client
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+# New model for AI-enhanced key detection
+# Models
+class TranspositionRequest(BaseModel):
+    content: str
+    half_steps: int
+    original_key: Optional[str] = None
+    target_key: Optional[str] = None
+
+
+class TranspositionResponse(BaseModel):
+    id: str
+    original_content: str
+    transposed_content: str
+    half_steps: int
+    original_key: Optional[str] = None
+    target_key: Optional[str] = None
+    created_at: str
+
+
+class TranspositionHistory(BaseModel):
+    transpositions: List[TranspositionResponse]
+
+
+class KeyDetectionRequest(BaseModel):
+    content: str
+
+
+class AIKeyDetectionRequest(BaseModel):
+    content: str
+    use_ai: bool = True  # Option to fall back to simple algorithm
+
+
+class KeyDetectionResponse(BaseModel):
+    id: str
+    original_content: str
+    detected_key: str
+    confidence: float
+    alternative_keys: List[str]
+    created_at: str
+
+
+class AIKeyDetectionResponse(KeyDetectionResponse):
+    ai_analysis: str = Field(None, description="Additional analysis from AI")
+
+
+class ChordInfo(BaseModel):
+    chord: str
+    position: int
+
+
+class SectionInfo(BaseModel):
+    name: str
+    chords: List[ChordInfo]
+
+
+class SongStructureRequest(BaseModel):
+    content: str
+    song_name: str
+    artist: Optional[str] = None
+    sections: Optional[List[str]] = None  # Optional section names like "Verse", "Chorus", etc.
+
+
+class SongStructureResponse(BaseModel):
+    id: str
+    song_name: str
+    artist: Optional[str] = None
+    structure: List[SectionInfo]
+    created_at: str
+
+
+class ChordExtractionResponse(BaseModel):
+    id: str
+    original_content: str
+    extracted_chords: str
+    created_at: str
+
 
 # Initialize FastAPI
 app = FastAPI(title="Music Transposition API",
               description="API for transposing songs to different keys",
               version="1.0.0")
-
-# Setup OpenAI client
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 # Initialize Database
@@ -43,14 +121,94 @@ def init_db():
     conn.close()
 
 
-# New model for AI-enhanced key detection
-class AIKeyDetectionRequest(BaseModel):
-    content: str
-    use_ai: bool = True  # Option to fall back to simple algorithm
+# Initialize the database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_db()
 
 
-class AIKeyDetectionResponse(KeyDetectionResponse):
-    ai_analysis: str = Field(None, description="Additional analysis from AI")
+# Custom transposition function
+def transpose_chord(chord, half_steps):
+    # Define the notes in order
+    notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    flat_notes = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
+
+    # Handle empty input
+    if not chord:
+        return chord
+
+    # Extract the root note and the rest of the chord
+    root = ""
+    i = 0
+    while i < len(chord) and (chord[i].isalpha() or chord[i] in ['#', 'b']):
+        root += chord[i]
+        i += 1
+
+    # If we couldn't extract a valid root, return the original chord
+    if not root:
+        return chord
+
+    # Handle flats and sharps
+    if 'b' in root:
+        # Use the flat notation
+        base_note = root[0]
+        if len(root) > 1 and root[1] == 'b':
+            note_index = flat_notes.index(base_note)
+            note_index = (note_index - 1) % 12
+            root_note = flat_notes[note_index]
+        else:
+            note_index = flat_notes.index(root[0])
+            root_note = flat_notes[note_index]
+
+        # For multiple flats (bb)
+        if root.count('b') > 1:
+            for _ in range(root.count('b')):
+                note_index = flat_notes.index(root_note)
+                note_index = (note_index - 1) % 12
+                root_note = flat_notes[note_index]
+
+    elif '#' in root:
+        # Use the sharp notation
+        base_note = root[0]
+        if len(root) > 1 and root[1] == '#':
+            note_index = notes.index(base_note)
+            note_index = (note_index + 1) % 12
+            root_note = notes[note_index]
+        else:
+            note_index = notes.index(root[0])
+            root_note = notes[note_index]
+
+        # For multiple sharps (##)
+        if root.count('#') > 1:
+            for _ in range(root.count('#')):
+                note_index = notes.index(root_note)
+                note_index = (note_index + 1) % 12
+                root_note = notes[note_index]
+
+    else:
+        # Simple case - just the note name
+        try:
+            note_index = notes.index(root)
+            root_note = root
+        except ValueError:
+            # If we can't find the note, return the original
+            return chord
+
+    # Calculate the new note index
+    if 'b' in root:
+        note_index = flat_notes.index(root_note)
+        new_index = (note_index + half_steps) % 12
+        new_root = flat_notes[new_index]
+    else:
+        note_index = notes.index(root_note)
+        new_index = (note_index + half_steps) % 12
+        new_root = notes[new_index]
+
+    # Preserve the rest of the chord (e.g., "m", "7", "maj7")
+    chord_suffix = chord[len(root):]
+
+    # Return the transposed chord
+    return new_root + chord_suffix
 
 
 # Helper function to get key detection from OpenAI
@@ -108,7 +266,60 @@ async def get_openai_key_detection(chord_progression: str) -> dict:
         }
 
 
-# New endpoint that uses OpenAI API for enhanced key detection
+@app.post("/detect-key/", response_model=KeyDetectionResponse)
+async def detect_song_key(request: KeyDetectionRequest):
+    try:
+        # Detect the key
+        detected_key, confidence, alternative_keys = detect_key(request.content)
+
+        # Generate a unique ID
+        detection_id = str(uuid.uuid4())
+
+        # Current timestamp
+        timestamp = datetime.now().isoformat()
+
+        # Store in database
+        conn = sqlite3.connect('transposition.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS key_detections (
+            id TEXT PRIMARY KEY,
+            original_content TEXT NOT NULL,
+            detected_key TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            alternative_keys TEXT NOT NULL,
+            created_at TIMESTAMP
+        )
+        ''')
+        cursor.execute('''
+        INSERT INTO key_detections
+        (id, original_content, detected_key, confidence, alternative_keys, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            detection_id,
+            request.content,
+            detected_key,
+            confidence,
+            ','.join(alternative_keys),
+            timestamp
+        ))
+        conn.commit()
+        conn.close()
+
+        # Return the result
+        return KeyDetectionResponse(
+            id=detection_id,
+            original_content=request.content,
+            detected_key=detected_key,
+            confidence=confidence,
+            alternative_keys=alternative_keys,
+            created_at=timestamp
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Key detection failed: {str(e)}")
+
+
+# endpoint that uses OpenAI API for enhanced key detection
 @app.post("/detect-key-ai/", response_model=AIKeyDetectionResponse)
 async def detect_song_key_with_ai(request: AIKeyDetectionRequest, background_tasks: BackgroundTasks):
     try:
@@ -188,50 +399,6 @@ async def detect_song_key_with_ai(request: AIKeyDetectionRequest, background_tas
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI-enhanced key detection failed: {str(e)}")
 
-class KeyDetectionRequest(BaseModel):
-    content: str
-
-
-class KeyDetectionResponse(BaseModel):
-    id: str
-    original_content: str
-    detected_key: str
-    confidence: float
-    alternative_keys: List[str]
-    created_at: str
-
-
-class ChordInfo(BaseModel):
-    chord: str
-    position: int
-
-
-class SectionInfo(BaseModel):
-    name: str
-    chords: List[ChordInfo]
-
-
-class SongStructureRequest(BaseModel):
-    content: str
-    song_name: str
-    artist: Optional[str] = None
-    sections: Optional[List[str]] = None  # Optional section names like "Verse", "Chorus", etc.
-
-
-class SongStructureResponse(BaseModel):
-    id: str
-    song_name: str
-    artist: Optional[str] = None
-    structure: List[SectionInfo]
-    created_at: str
-
-
-class ChordExtractionResponse(BaseModel):
-    id: str
-    original_content: str
-    extracted_chords: str
-    created_at: str
-
 
 def detect_key(chord_progression):
     # Simple key detection based on chord frequency and common progressions
@@ -277,59 +444,6 @@ def detect_key(chord_progression):
     alternative_keys = [k for k, s in sorted_keys[1:4]]
 
     return detected_key, confidence, alternative_keys
-
-
-@app.post("/detect-key/", response_model=KeyDetectionResponse)
-async def detect_song_key(request: KeyDetectionRequest):
-    try:
-        # Detect the key
-        detected_key, confidence, alternative_keys = detect_key(request.content)
-
-        # Generate a unique ID
-        detection_id = str(uuid.uuid4())
-
-        # Current timestamp
-        timestamp = datetime.now().isoformat()
-
-        # Store in database
-        conn = sqlite3.connect('transposition.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS key_detections (
-            id TEXT PRIMARY KEY,
-            original_content TEXT NOT NULL,
-            detected_key TEXT NOT NULL,
-            confidence REAL NOT NULL,
-            alternative_keys TEXT NOT NULL,
-            created_at TIMESTAMP
-        )
-        ''')
-        cursor.execute('''
-        INSERT INTO key_detections
-        (id, original_content, detected_key, confidence, alternative_keys, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            detection_id,
-            request.content,
-            detected_key,
-            confidence,
-            ','.join(alternative_keys),
-            timestamp
-        ))
-        conn.commit()
-        conn.close()
-
-        # Return the result
-        return KeyDetectionResponse(
-            id=detection_id,
-            original_content=request.content,
-            detected_key=detected_key,
-            confidence=confidence,
-            alternative_keys=alternative_keys,
-            created_at=timestamp
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Key detection failed: {str(e)}")
 
 
 @app.post("/song-structure/", response_model=SongStructureResponse)
@@ -471,118 +585,6 @@ async def extract_chords_from_text(file: UploadFile = File(...)):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chord extraction failed: {str(e)}")
-
-
-# Models
-class TranspositionRequest(BaseModel):
-    content: str
-    half_steps: int
-    original_key: Optional[str] = None
-    target_key: Optional[str] = None
-
-
-class TranspositionResponse(BaseModel):
-    id: str
-    original_content: str
-    transposed_content: str
-    half_steps: int
-    original_key: Optional[str] = None
-    target_key: Optional[str] = None
-    created_at: str
-
-
-class TranspositionHistory(BaseModel):
-    transpositions: List[TranspositionResponse]
-
-
-# Initialize the database on startup
-@app.on_event("startup")
-async def startup_event():
-    init_db()
-
-
-# Custom transposition function
-def transpose_chord(chord, half_steps):
-    # Define the notes in order
-    notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    flat_notes = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
-
-    # Handle empty input
-    if not chord:
-        return chord
-
-    # Extract the root note and the rest of the chord
-    root = ""
-    i = 0
-    while i < len(chord) and (chord[i].isalpha() or chord[i] in ['#', 'b']):
-        root += chord[i]
-        i += 1
-
-    # If we couldn't extract a valid root, return the original chord
-    if not root:
-        return chord
-
-    # Handle flats and sharps
-    if 'b' in root:
-        # Use the flat notation
-        base_note = root[0]
-        if len(root) > 1 and root[1] == 'b':
-            note_index = flat_notes.index(base_note)
-            note_index = (note_index - 1) % 12
-            root_note = flat_notes[note_index]
-        else:
-            note_index = flat_notes.index(root[0])
-            root_note = flat_notes[note_index]
-
-        # For multiple flats (bb)
-        if root.count('b') > 1:
-            for _ in range(root.count('b')):
-                note_index = flat_notes.index(root_note)
-                note_index = (note_index - 1) % 12
-                root_note = flat_notes[note_index]
-
-    elif '#' in root:
-        # Use the sharp notation
-        base_note = root[0]
-        if len(root) > 1 and root[1] == '#':
-            note_index = notes.index(base_note)
-            note_index = (note_index + 1) % 12
-            root_note = notes[note_index]
-        else:
-            note_index = notes.index(root[0])
-            root_note = notes[note_index]
-
-        # For multiple sharps (##)
-        if root.count('#') > 1:
-            for _ in range(root.count('#')):
-                note_index = notes.index(root_note)
-                note_index = (note_index + 1) % 12
-                root_note = notes[note_index]
-
-    else:
-        # Simple case - just the note name
-        try:
-            note_index = notes.index(root)
-            root_note = root
-        except ValueError:
-            # If we can't find the note, return the original
-            return chord
-
-    # Calculate the new note index
-    if 'b' in root:
-        note_index = flat_notes.index(root_note)
-        new_index = (note_index + half_steps) % 12
-        new_root = flat_notes[new_index]
-    else:
-        note_index = notes.index(root_note)
-        new_index = (note_index + half_steps) % 12
-        new_root = notes[new_index]
-
-    # Preserve the rest of the chord (e.g., "m", "7", "maj7")
-    chord_suffix = chord[len(root):]
-
-    # Return the transposed chord
-    return new_root + chord_suffix
 
 
 def transpose_song(content, half_steps):
