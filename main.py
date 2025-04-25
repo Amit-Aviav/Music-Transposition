@@ -7,11 +7,21 @@ import uuid
 from datetime import datetime
 import re
 from fastapi import File, UploadFile
+import os
+import openai
+from fastapi import Depends, HTTPException, BackgroundTasks
+from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+load_dotenv()  # You'll need to create a .env file with your OpenAI API key
 
 # Initialize FastAPI
 app = FastAPI(title="Music Transposition API",
               description="API for transposing songs to different keys",
               version="1.0.0")
+
+# Setup OpenAI client
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 # Initialize Database
@@ -32,6 +42,151 @@ def init_db():
     conn.commit()
     conn.close()
 
+
+# New model for AI-enhanced key detection
+class AIKeyDetectionRequest(BaseModel):
+    content: str
+    use_ai: bool = True  # Option to fall back to simple algorithm
+
+
+class AIKeyDetectionResponse(KeyDetectionResponse):
+    ai_analysis: str = Field(None, description="Additional analysis from AI")
+
+
+# Helper function to get key detection from OpenAI
+async def get_openai_key_detection(chord_progression: str) -> dict:
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system",
+                 "content": "You are a music theory expert. Analyze the following chord progression and determine the most likely key. Return your response in JSON format with fields: detected_key, confidence (0-1), alternative_keys (array), and analysis."},
+                {"role": "user",
+                 "content": f"Analyze this chord progression and determine the key: {chord_progression}"}
+            ],
+            response_format={"type": "json_object"}
+        )
+
+        # Extract the JSON response
+        result = response.choices[0].message.content
+
+        # Log the API call to database
+        conn = sqlite3.connect('transposition.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS api_logs (
+            id TEXT PRIMARY KEY,
+            api_name TEXT NOT NULL,
+            request_data TEXT NOT NULL,
+            response_data TEXT NOT NULL,
+            created_at TIMESTAMP
+        )
+        ''')
+        cursor.execute('''
+        INSERT INTO api_logs
+        (id, api_name, request_data, response_data, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ''', (
+            str(uuid.uuid4()),
+            "OpenAI",
+            chord_progression,
+            result,
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+        conn.close()
+
+        return result
+    except Exception as e:
+        # If API call fails, return error information
+        return {
+            "error": str(e),
+            "detected_key": None,
+            "confidence": 0,
+            "alternative_keys": [],
+            "analysis": f"API error: {str(e)}"
+        }
+
+
+# New endpoint that uses OpenAI API for enhanced key detection
+@app.post("/detect-key-ai/", response_model=AIKeyDetectionResponse)
+async def detect_song_key_with_ai(request: AIKeyDetectionRequest, background_tasks: BackgroundTasks):
+    try:
+        # First use our basic algorithm
+        detected_key, confidence, alternative_keys = detect_key(request.content)
+
+        # Generate a unique ID
+        detection_id = str(uuid.uuid4())
+
+        # Current timestamp
+        timestamp = datetime.now().isoformat()
+
+        # Default response with basic algorithm
+        response = AIKeyDetectionResponse(
+            id=detection_id,
+            original_content=request.content,
+            detected_key=detected_key,
+            confidence=confidence,
+            alternative_keys=alternative_keys,
+            created_at=timestamp
+        )
+
+        # If AI analysis is requested, use OpenAI
+        if request.use_ai:
+            try:
+                ai_result = await get_openai_key_detection(request.content)
+
+                # Process AI results (may be a string that needs parsing)
+                if isinstance(ai_result, str):
+                    import json
+                    ai_result = json.loads(ai_result)
+
+                # Update response with AI results if successful
+                if "detected_key" in ai_result and ai_result["detected_key"]:
+                    response.detected_key = ai_result["detected_key"]
+                if "confidence" in ai_result:
+                    response.confidence = ai_result["confidence"]
+                if "alternative_keys" in ai_result:
+                    response.alternative_keys = ai_result["alternative_keys"]
+                if "analysis" in ai_result:
+                    response.ai_analysis = ai_result["analysis"]
+            except Exception as e:
+                # If OpenAI fails, we already have results from our algorithm
+                response.ai_analysis = f"AI analysis failed: {str(e)}"
+
+        # Store in database
+        conn = sqlite3.connect('transposition.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ai_key_detections (
+            id TEXT PRIMARY KEY,
+            original_content TEXT NOT NULL,
+            detected_key TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            alternative_keys TEXT NOT NULL,
+            ai_analysis TEXT,
+            created_at TIMESTAMP
+        )
+        ''')
+        cursor.execute('''
+        INSERT INTO ai_key_detections
+        (id, original_content, detected_key, confidence, alternative_keys, ai_analysis, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            detection_id,
+            request.content,
+            response.detected_key,
+            response.confidence,
+            ','.join(response.alternative_keys),
+            response.ai_analysis,
+            timestamp
+        ))
+        conn.commit()
+        conn.close()
+
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI-enhanced key detection failed: {str(e)}")
 
 class KeyDetectionRequest(BaseModel):
     content: str
