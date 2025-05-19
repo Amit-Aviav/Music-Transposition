@@ -1,19 +1,21 @@
-# Music Transposition API
+# Music Transposition API🎵
 
-A FastAPI-based service for music analysis, chord transposition, and song structure parsing.
+A web-based API for analyzing songs, detecting keys, transposing chords, and parsing song structures.  
+Built with FastAPI, Docker, and OpenAI for intelligent and scalable music analysis.
 
 ## Features
-
-- **Chord Transposition**: Transpose chord progressions up or down by any number of half steps
-- **Key Detection**: Detect the musical key of chord progressions using both algorithmic and AI-powered methods
-- **Chord Extraction**: Extract chord notations from text files
-- **Song Structure Analysis**: Parse and organize songs into sections with chord progressions
+- 🎼 **Chord Transposition** – Shift chord progressions up/down by any number of semitones
+- 🎹 **Key Detection** – Detect the musical key using rule-based and AI-powered methods
+- 📝 **Chord Extraction** – Automatically extract chord notations from song lyrics
+- 📊 **Song Structure Analysis** – Identify and organize song sections (e.g., verse, chorus) with chords
+- 🧠 **AI Integration** – Leverage OpenAI for intelligent musical analysis with fallback logic
 
 ## Tech Stack
-
-- **FastAPI**: Modern, high-performance web framework for building APIs
-- **SQLite**: Lightweight database for storing transpositions and analysis results
-- **OpenAI API**: AI-powered musical analysis for enhanced key detection
+- **FastAPI** – Modern Python framework for building high-performance APIs
+- **Docker** – Containerization for local and cloud deployment (Azure)
+- **SQLite** – Lightweight relational database for storing analysis history
+- **OpenAI API** – For enhanced key detection using AI
+- **Uvicorn** – ASGI server for running the FastAPI app
 
 ## Installation
 
