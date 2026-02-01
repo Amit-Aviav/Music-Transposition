@@ -21,27 +21,46 @@ Built with FastAPI, Docker, and OpenAI for intelligent and scalable music analys
 
 1. Clone the repository:
    ```
-   git clone https://github.com/your-username/music-transposition-api.git
-   cd music-transposition-api
+   git clone https://github.com/Amit-Aviav/Music-Transposition-api.git
+   cd Music-Transposition-api
    ```
 
-2. Install dependencies:
+2. Create & activate venv:
+   Windows (PowerShell):
    ```
-   pip install fastapi uvicorn pydantic python-multipart python-openai python-dotenv
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
    ```
 
-3. Create a `.env` file in the project root and add your OpenAI API key:
+   macOS / Linux:
+   ```
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+3. Install dependencies:
+   ```
+   python -m pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+4. (Optional) Create a `.env` file in the project root and add your OpenAI API key:
    ```
    OPENAI_API_KEY=your_api_key_here
    ```
+If you don’t set OPENAI_API_KEY, the API should still run and non-AI endpoints will work.
 
-4. Run the API:
+5. Run the API:
    ```
    uvicorn main:app --reload
    ```
 
-5. Visit `http://localhost:8000/docs` to access the interactive API documentation.
+6. Visit `http://localhost:8000/docs` to access the interactive API documentation.
 
+7. Run tests:
+   ```
+   pytest
+   ```
 ## API Endpoints
 
 ### Transposition
