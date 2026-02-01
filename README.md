@@ -21,8 +21,8 @@ Built with FastAPI, Docker, and OpenAI for intelligent and scalable music analys
 
 1. Clone the repository:
    ```
-   git clone https://github.com/Amit-Aviav/Music-Transposition-api.git
-   cd Music-Transposition-api
+   git clone https://github.com/Amit-Aviav/Music-Transposition.git
+   cd Music-Transposition
    ```
 
 2. Create & activate venv:
@@ -31,6 +31,7 @@ Built with FastAPI, Docker, and OpenAI for intelligent and scalable music analys
    python -m venv venv
    .\venv\Scripts\Activate.ps1
    ```
+   Note: This project uses the legacy OpenAI Python SDK (openai 0.27.x).
 
    macOS / Linux:
    ```
@@ -38,6 +39,21 @@ Built with FastAPI, Docker, and OpenAI for intelligent and scalable music analys
    source venv/bin/activate
    ```
 
+2. Create & activate venv:
+
+<details>
+   <summary><strong>Windows (PowerShell)</strong></summary>
+
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+   </details> <details> <summary><strong>macOS / Linux</strong></summary>
+   bash
+   Copy code
+   python3 -m venv venv
+   source venv/bin/activate
+   </details> ```
+   
 3. Install dependencies:
    ```
    python -m pip install --upgrade pip
