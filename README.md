@@ -41,17 +41,17 @@ Built with FastAPI, Docker, and OpenAI for intelligent and scalable music analys
 
 2. Create & activate venv: 
 
-Windows (PowerShell):
-```
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-Note: This project uses the legacy OpenAI Python SDK (openai 0.27.x). 
-```
-macOS / Linux:
-```
-python3 -m venv venv
-source venv/bin/activate
-```
+   Windows (PowerShell):
+   ```
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+   Note: This project uses the legacy OpenAI Python SDK (openai 0.27.x). 
+   ```
+   macOS / Linux:
+   ```
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
 
 3. Install dependencies:
    ```
